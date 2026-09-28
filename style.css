@@ -241,15 +241,22 @@ input.num-input{width:64px;flex:none;font-size:11.5px;padding:6px 6px;}
   }
 }
 
-/* VWorld's compass/zoom/home widget: redundant with pinch-zoom on phones, and it
-   sits exactly where you tap to draw (its home button resets the camera). */
+/* Side panel can be hidden (☰) to give the whole screen to the map. */
+body.panel-hidden #controls{display:none;}
+body.panel-hidden .edit-bar{left:16px;}
+
+/* Touch devices (phones and tablets). VWorld's compass/zoom/home widget is redundant
+   with pinch-zoom and sits exactly where you tap to draw (its home button resets the
+   camera), so hide it — which also frees the right side for the edit toolbar. */
 @media (pointer:coarse){
   #naviAllDiv, #naviRotate, #naviZoomPannel{display:none !important;}
+  .edit-bar{right:16px;}
+  #panelToggle{display:flex;align-items:center;justify-content:center;}
 }
 
+/* Phone, portrait: panel becomes a bottom sheet. */
 @media (max-width:640px){
   #controls{
-    display:none;
     top:auto;
     bottom:calc(100px + env(safe-area-inset-bottom,0px));
     left:12px;
@@ -257,8 +264,7 @@ input.num-input{width:64px;flex:none;font-size:11.5px;padding:6px 6px;}
     width:auto;
     max-height:55vh;
   }
-  #controls.open{display:block;}
-  .edit-bar{left:8px;right:8px;top:calc(8px + env(safe-area-inset-top,0px));padding:8px 10px;}
+  .edit-bar, body.panel-hidden .edit-bar{left:8px;right:8px;top:calc(8px + env(safe-area-inset-top,0px));padding:8px 10px;}
   .edit-title{font-size:12.5px;}
   .edit-hint{font-size:11px;margin-bottom:6px;}
   .edit-actions{flex-wrap:nowrap;gap:4px;}
@@ -268,5 +274,53 @@ input.num-input{width:64px;flex:none;font-size:11.5px;padding:6px 6px;}
     left:12px;
     right:80px;
     width:auto;
+  }
+}
+
+/* Short landscape screens (phone held sideways, small tablets): full-height side panel,
+   status box beside it along the bottom, one-line edit toolbar. Side insets keep
+   everything clear of a notch on the left/right edge. */
+@media (orientation:landscape) and (max-height:540px){
+  .panel{padding:10px 12px;}
+  #controls{
+    top:calc(8px + env(safe-area-inset-top,0px));
+    bottom:calc(8px + env(safe-area-inset-bottom,0px));
+    left:calc(8px + env(safe-area-inset-left,0px));
+    right:auto;
+    width:270px;
+    max-height:none;
+  }
+  #controls h1{font-size:14px;}
+  #controls .sub{display:none;}
+  .field{margin-bottom:10px;}
+  .section{margin-bottom:10px;}
+  #statusPanel{
+    left:calc(286px + env(safe-area-inset-left,0px));
+    right:calc(64px + env(safe-area-inset-right,0px));
+    bottom:calc(8px + env(safe-area-inset-bottom,0px));
+    width:auto;
+    max-height:32vh;
+    overflow:auto;
+    font-size:11.5px;
+    padding:7px 10px;
+  }
+  body.panel-hidden #statusPanel{left:calc(8px + env(safe-area-inset-left,0px));}
+  .edit-bar, body.panel-hidden .edit-bar{
+    top:calc(8px + env(safe-area-inset-top,0px));
+    left:calc(286px + env(safe-area-inset-left,0px));
+    right:calc(8px + env(safe-area-inset-right,0px));
+    padding:6px 8px;
+    display:flex;align-items:center;gap:8px;
+  }
+  body.panel-hidden .edit-bar{left:calc(8px + env(safe-area-inset-left,0px));}
+  .edit-bar[hidden]{display:none;}
+  .edit-title{margin:0;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto;}
+  .edit-hint{display:none;}
+  .edit-actions{flex:1 0 auto;flex-wrap:nowrap;gap:4px;justify-content:flex-end;}
+  .edit-actions .btn{flex:0 0 auto;padding:7px 9px;font-size:11px;white-space:nowrap;}
+  #panelToggle{
+    right:calc(8px + env(safe-area-inset-right,0px));
+    bottom:calc(8px + env(safe-area-inset-bottom,0px));
+    width:46px;height:46px;
   }
 }

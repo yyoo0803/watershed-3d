@@ -1551,7 +1551,19 @@
     els.edDoneBtn.addEventListener("click", editorDone);
     document.addEventListener("keydown", onKeyDown);
 
-    els.panelToggle.addEventListener("click", function () { els.controls.classList.toggle("open"); });
+    // Phones in portrait start with the panel tucked away; tablets and landscape start
+    // with it open. ☰ toggles it on any touch device.
+    if (window.matchMedia("(max-width: 640px) and (orientation: portrait)").matches) {
+      document.body.classList.add("panel-hidden");
+    }
+    els.panelToggle.addEventListener("click", function () {
+      document.body.classList.toggle("panel-hidden");
+      requestRender();
+    });
+    // Rotating a phone/tablet resizes the map canvas; with on-demand rendering the
+    // new size must be drawn explicitly.
+    window.addEventListener("resize", requestRender);
+    window.addEventListener("orientationchange", requestRender);
     els.retryBtn.addEventListener("click", function () { window.location.reload(); });
     renderWatershedList();
     renderDxfShapeList();
