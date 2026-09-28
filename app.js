@@ -10,6 +10,7 @@
   var EARTH_RADIUS_M = 6378137;
   var TERRAIN_SPACING_OK_M = 30;
   var MAX_VERTEX_JUMP_METERS = 20000;
+  var IS_TOUCH = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
 
   function toRadians(d) { return d * Math.PI / 180; }
   function toDegrees(r) { return r * 180 / Math.PI; }
@@ -44,10 +45,43 @@
     els.statusText.className = level || "";
   }
 
+  // The scene only redraws on request (see tuneRendering), so every visual change
+  // made outside Cesium's own camera/tile handling must ask for a frame. Static
+  // outlines/fills finish building asynchronously in web workers and don't request
+  // a frame when ready, so keep asking for a short while after each change.
+  var renderBurstUntil = 0, renderBurstTimer = null;
+  function requestRender() {
+    if (!state.viewer) return;
+    state.viewer.scene.requestRender();
+    renderBurstUntil = Date.now() + 4000;
+    if (renderBurstTimer) return;
+    renderBurstTimer = setInterval(function () {
+      state.viewer.scene.requestRender();
+      if (Date.now() > renderBurstUntil) { clearInterval(renderBurstTimer); renderBurstTimer = null; }
+    }, 120);
+  }
+
   function batchEntities(fn) {
     var ents = state.viewer.entities;
     ents.suspendEvents();
-    try { fn(ents); } finally { ents.resumeEvents(); }
+    try { fn(ents); } finally { ents.resumeEvents(); requestRender(); }
+  }
+
+  // By default the viewer redraws the full 3D scene ~60 times a second even when
+  // nothing moves, which is what made phones hot and laggy. Draw only on change,
+  // and on touch devices also drop costly effects and cap the frame rate.
+  function tuneRendering(viewer) {
+    var scene = viewer.scene, globe = scene.globe;
+    scene.requestRenderMode = true;
+    scene.maximumRenderTimeChange = Infinity;
+    if (!IS_TOUCH) return;
+    viewer.targetFrameRate = 30;
+    globe.maximumScreenSpaceError = Math.max(globe.maximumScreenSpaceError || 2, 4);
+    globe.tileCacheSize = 100;
+    if (scene.postProcessStages && scene.postProcessStages.fxaa) scene.postProcessStages.fxaa.enabled = false;
+    if ("fxaa" in scene) scene.fxaa = false;
+    if (scene.skyAtmosphere) scene.skyAtmosphere.show = false;
+    if ("showGroundAtmosphere" in globe) globe.showGroundAtmosphere = false;
   }
 
   // ---------- map bootstrap ----------
@@ -299,6 +333,7 @@
       navigator.geolocation.clearWatch(state.tracking.watchId);
       state.tracking.watchId = null;
       state.tracking.hasFix = false;
+      state.tracking.lastCenter = null;
       if (state.tracking.entity) { state.viewer.entities.remove(state.tracking.entity); state.tracking.entity = null; }
       els.trackBtn.textContent = "실시간 위치 추적 시작";
       setStatus("실시간 위치 추적을 중지했습니다.", "");
@@ -330,11 +365,17 @@
     } else {
       state.tracking.entity.position = position;
     }
+    requestRender();
     var first = !state.tracking.hasFix;
     state.tracking.hasFix = true;
-    if (first || els.followCheck.checked) {
+    // GPS jitters by a few metres even when standing still; re-centring on every
+    // tiny change keeps the camera animating nonstop, so ignore sub-5 m moves.
+    var last = state.tracking.lastCenter;
+    var movedEnough = !last || state.Cartesian3.distance(last, position) > 5;
+    if (first || (els.followCheck.checked && movedEnough)) {
       var camH = first ? 1200 : state.viewer.camera.positionCartographic.height;
       flyToCoordinates(lat, lng, camH);
+      state.tracking.lastCenter = position;
     }
     els.latInput.value = lat.toFixed(6);
     els.lngInput.value = lng.toFixed(6);
@@ -459,12 +500,14 @@
     var pts = ed.positions.slice();
     if (ed.mode === "draw" && ed.hover && !ed.dragging) pts.push(ed.hover);
     ed.ringCache = pts.length >= 2 ? densifyPath(pts, pts.length >= 3) : [];
+    requestRender();
   }
 
   function handleStyle(ed, i) {
     var selected = i === ed.selected;
+    var base = IS_TOUCH ? 18 : 12;
     return {
-      pixelSize: selected ? 15 : 12,
+      pixelSize: selected ? base + 4 : base,
       color: state.Color.fromCssColorString(selected ? "#ffe066" : "#ffffff"),
       outlineColor: state.Color.fromCssColorString(ed.color),
       outlineWidth: 3,
@@ -492,7 +535,7 @@
           var m = ents.add({
             position: liftCartesian(midpointOnTerrain(ed.positions[i], ed.positions[(i + 1) % n]), LIFT_M),
             point: {
-              pixelSize: 9,
+              pixelSize: IS_TOUCH ? 14 : 9,
               color: state.Color.fromCssColorString(ed.color).withAlpha(0.6),
               outlineColor: state.Color.fromCssColorString("#ffffff").withAlpha(0.85),
               outlineWidth: 1,
@@ -517,10 +560,12 @@
       if (ed.midEnts[prev]) ed.midEnts[prev].position = liftCartesian(midpointOnTerrain(ed.positions[prev], ed.positions[i]), LIFT_M);
       if (ed.midEnts[i]) ed.midEnts[i].position = liftCartesian(midpointOnTerrain(ed.positions[i], ed.positions[(i + 1) % n]), LIFT_M);
     }
+    requestRender();
   }
 
   function pickHandle(windowPosition) {
-    var picked = state.viewer.scene.pick(windowPosition, 14, 14);
+    var size = IS_TOUCH ? 32 : 14;
+    var picked = state.viewer.scene.pick(windowPosition, size, size);
     var ent = picked && picked.id;
     if (ent && ent._edRole) return { role: ent._edRole, index: ent._edIndex };
     return null;
@@ -709,9 +754,14 @@
     els.drawFinishBtn.disabled = !ed || ed.positions.length < 3;
     if (!ed) return;
     els.editBarTitle.textContent = ed.title + " · 점 " + ed.positions.length + "개";
-    els.editBarHint.textContent = ed.mode === "draw"
-      ? "지도 클릭: 점 추가 · 흰 점 드래그: 이동 · 변 가운데 작은 점 드래그: 점 끼워넣기 · 흰 점 우클릭: 삭제 · 빈 곳 우클릭: 마지막 점 취소 · 더블클릭: 완료"
-      : "흰 점 드래그: 이동 · 변 가운데 작은 점 드래그: 점 끼워넣기 · 흰 점 우클릭(또는 클릭 후 \"선택 점 삭제\"): 삭제 · 지도는 평소처럼 드래그로 이동";
+    if (IS_TOUCH) {
+      els.editBarHint.textContent = (ed.mode === "draw" ? "탭: 점 추가 · " : "") +
+        "흰 점 끌기: 이동 · 작은 점 끌기: 끼워넣기 · 점 탭 후 삭제";
+    } else {
+      els.editBarHint.textContent = ed.mode === "draw"
+        ? "지도 클릭: 점 추가 · 흰 점 드래그: 이동 · 변 가운데 작은 점 드래그: 점 끼워넣기 · 흰 점 우클릭: 삭제 · 빈 곳 우클릭: 마지막 점 취소 · 더블클릭: 완료"
+        : "흰 점 드래그: 이동 · 변 가운데 작은 점 드래그: 점 끼워넣기 · 흰 점 우클릭(또는 클릭 후 \"선택 점 삭제\"): 삭제 · 지도는 평소처럼 드래그로 이동";
+    }
     els.edUndoBtn.hidden = ed.mode !== "draw";
     els.edUndoBtn.disabled = ed.positions.length === 0;
     els.edDeleteBtn.disabled = ed.selected === -1;
@@ -1057,22 +1107,18 @@
           }));
           return;
         }
-        var mid = state.Cartesian3.lerp(cell.cartesian, cell.to.cartesian, 0.55, new state.Cartesian3(0, 0, 0));
+        // One billboard per cell: billboards all share a single draw call, whereas a
+        // separate polyline per arrow meant hundreds of geometries to build — slow on phones.
         var color = colorForCell(cell, maxAcc);
-        var material = state.Color.fromCssColorString(color.hex);
-        ws.arrowEntities.push(ents.add({
-          show: show,
-          polyline: { positions: [cell.cartesian, mid], width: color.width, material: material }
-        }));
         // rotation = toRadians(-bearing) verified live: an east-bearing arrow points east.
         ws.arrowEntities.push(ents.add({
           show: show,
-          position: mid,
+          position: state.Cartesian3.lerp(cell.cartesian, cell.to.cartesian, 0.25, new state.Cartesian3(0, 0, 0)),
           billboard: {
             image: state.arrowIconUrl,
             rotation: toRadians(-cell.bearing),
-            color: material,
-            scale: color.isChannel ? 0.9 : 0.6,
+            color: state.Color.fromCssColorString(color.hex),
+            scale: color.isChannel ? 0.55 + color.width * 0.06 : 0.5,
             disableDepthTestDistance: Number.POSITIVE_INFINITY
           }
         }));
@@ -1493,6 +1539,12 @@
     els.watershedList.addEventListener("click", onWatershedListClick);
     els.watershedList.addEventListener("input", onWatershedListInput);
 
+    if (IS_TOUCH) {
+      els.edUndoBtn.textContent = "마지막 점 취소";
+      els.edDeleteBtn.textContent = "점 삭제";
+      els.edCancelBtn.textContent = "취소";
+      els.edDoneBtn.textContent = "완료";
+    }
     els.edUndoBtn.addEventListener("click", undoLastPoint);
     els.edDeleteBtn.addEventListener("click", function () { if (state.editor) deleteVertex(state.editor.selected); });
     els.edCancelBtn.addEventListener("click", cancelEditor);
@@ -1544,6 +1596,7 @@
         state.viewer = viewer;
         discoverTypes(viewer);
         viewer.scene.globe.depthTestAgainstTerrain = true;
+        tuneRendering(viewer);
         state.arrowIconUrl = createArrowIcon();
         setupUI();
         setStatus("지도가 준비되었습니다. 주소를 검색하거나 좌표로 이동한 뒤, 유역 경계를 그려보세요.", "");

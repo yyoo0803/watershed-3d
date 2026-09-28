@@ -231,6 +231,22 @@ input.num-input{width:64px;flex:none;font-size:11.5px;padding:6px 6px;}
 .error-box p{font-size:13px;color:var(--text-muted);line-height:1.5;margin:0 0 16px;}
 .error-box .btn{width:100%;}
 
+/* backdrop-filter re-blurs the live 3D map behind every panel each frame — cheap on a
+   desktop GPU, a major source of lag on phones. Use a solid background there instead. */
+@media (pointer:coarse), (max-width:640px){
+  .panel, #panelToggle{
+    -webkit-backdrop-filter:none;
+    backdrop-filter:none;
+    background:rgba(18,24,26,0.94);
+  }
+}
+
+/* VWorld's compass/zoom/home widget: redundant with pinch-zoom on phones, and it
+   sits exactly where you tap to draw (its home button resets the camera). */
+@media (pointer:coarse){
+  #naviAllDiv, #naviRotate, #naviZoomPannel{display:none !important;}
+}
+
 @media (max-width:640px){
   #controls{
     display:none;
@@ -242,7 +258,11 @@ input.num-input{width:64px;flex:none;font-size:11.5px;padding:6px 6px;}
     max-height:55vh;
   }
   #controls.open{display:block;}
-  .edit-bar{left:12px;right:12px;}
+  .edit-bar{left:8px;right:8px;top:calc(8px + env(safe-area-inset-top,0px));padding:8px 10px;}
+  .edit-title{font-size:12.5px;}
+  .edit-hint{font-size:11px;margin-bottom:6px;}
+  .edit-actions{flex-wrap:nowrap;gap:4px;}
+  .edit-actions .btn{flex:1 1 0;min-width:0;padding:8px 4px;font-size:11px;white-space:nowrap;}
   #panelToggle{display:flex;align-items:center;justify-content:center;}
   #statusPanel{
     left:12px;
