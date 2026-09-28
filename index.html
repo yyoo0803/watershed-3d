@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>지형 유향 도구</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="style.css?v=20260928b">
+</head>
+<body>
+  <div id="vmap"></div>
+
+  <div id="controls" class="panel">
+    <h1>지형 유향 도구</h1>
+    <p class="sub">유역 경계를 그리면 실제 지형 경사로 물 흐름 방향을 계산합니다</p>
+
+    <details class="section" open>
+      <summary>위치 찾기</summary>
+
+      <div class="field">
+        <label>지번·도로명 주소 검색</label>
+        <div class="row">
+          <input id="searchInput" type="text" placeholder="예: 서울특별시 종로구 세종로 1">
+          <button id="searchBtn" class="btn">검색</button>
+        </div>
+        <div id="searchResults" class="search-results" hidden></div>
+      </div>
+
+      <div class="field">
+        <label>좌표로 이동</label>
+        <div class="row">
+          <input id="latInput" type="number" step="0.000001" placeholder="위도">
+          <input id="lngInput" type="number" step="0.000001" placeholder="경도">
+        </div>
+        <div class="row">
+          <button id="flyBtn" class="btn">좌표로 이동</button>
+          <button id="myLocationBtn" class="btn">내 위치로 이동</button>
+        </div>
+        <div class="row">
+          <button id="trackBtn" class="btn">실시간 위치 추적 시작</button>
+        </div>
+        <label class="check-row"><input id="followCheck" type="checkbox" checked> 지도가 내 위치 따라가기 (내비게이션처럼)</label>
+      </div>
+    </details>
+
+    <details class="section">
+      <summary>DXF 불러오기</summary>
+      <div class="field">
+        <input id="dxfInput" type="file" accept=".dxf" hidden>
+        <button id="dxfUploadBtn" class="btn">DXF 파일 선택</button>
+        <div id="dxfStatus" class="hint"></div>
+      </div>
+      <div id="dxfAnchorPanel" hidden>
+        <div class="field">
+          <label>기준점 맞추기 (도형 2개 지점 ↔ 지도 위 위치)</label>
+          <div class="anchor-row">
+            <span class="anchor-label">기준점 1</span>
+            <input id="dxfAnchor1X" type="number" step="any" class="num-input">
+            <input id="dxfAnchor1Y" type="number" step="any" class="num-input">
+            <button id="dxfPick1Btn" class="btn btn-sm">지도 클릭</button>
+            <span id="dxfAnchor1Status" class="anchor-status"></span>
+          </div>
+          <div class="anchor-row">
+            <span class="anchor-label">기준점 2</span>
+            <input id="dxfAnchor2X" type="number" step="any" class="num-input">
+            <input id="dxfAnchor2Y" type="number" step="any" class="num-input">
+            <button id="dxfPick2Btn" class="btn btn-sm">지도 클릭</button>
+            <span id="dxfAnchor2Status" class="anchor-status"></span>
+          </div>
+          <div class="hint">DXF 좌표값은 자동으로 채워집니다. 두 기준점 모두 지도 위 위치를 클릭하면 도형이 배치됩니다.</div>
+        </div>
+      </div>
+      <div class="field">
+        <label>불러온 도형 (<span id="dxfShapeCount" class="num">0</span>)</label>
+        <div id="dxfShapeList" class="ws-list"></div>
+      </div>
+    </details>
+
+    <div class="field">
+      <label>격자 해상도 <span id="resolutionLabel" class="num">15</span> × <span id="resolutionLabel2" class="num">15</span></label>
+      <input id="resolutionSlider" type="range" min="5" max="20" step="1" value="15">
+    </div>
+
+    <div class="field">
+      <label>새로 그릴 유역 구분</label>
+      <select id="drawCategorySelect">
+        <option value="general">일반</option>
+        <option value="before">개발 전</option>
+        <option value="after">개발 후</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <div class="row">
+        <button id="drawStartBtn" class="btn btn-primary">새 유역 그리기 시작</button>
+        <button id="drawFinishBtn" class="btn" disabled>그리기 완료</button>
+      </div>
+      <div class="row">
+        <button id="recomputeBtn" class="btn" disabled>전체 다시 계산</button>
+        <button id="resetBtn" class="btn btn-danger" disabled>전체 삭제</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>유역 목록 (<span id="watershedCount" class="num">0</span>)</label>
+      <div id="watershedList" class="ws-list"></div>
+    </div>
+
+    <div class="field">
+      <label>결과 내보내기</label>
+      <div class="row">
+        <button id="exportCsvBtn" class="btn" disabled>CSV</button>
+        <button id="exportGeoJsonBtn" class="btn" disabled>GeoJSON</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="statusPanel" class="panel">
+    <div id="statusText">브이월드 지도를 불러오는 중…</div>
+  </div>
+
+  <div id="editBar" class="panel edit-bar" hidden>
+    <div id="editBarTitle" class="edit-title"></div>
+    <div id="editBarHint" class="edit-hint"></div>
+    <div class="edit-actions">
+      <button id="edUndoBtn" class="btn btn-sm">마지막 점 취소</button>
+      <button id="edDeleteBtn" class="btn btn-sm" disabled>선택 점 삭제</button>
+      <button id="edCancelBtn" class="btn btn-sm">취소 (Esc)</button>
+      <button id="edDoneBtn" class="btn btn-sm btn-primary">완료 (Enter)</button>
+    </div>
+  </div>
+
+  <button id="panelToggle" aria-label="컨트롤 패널 열기/닫기">☰</button>
+
+  <div id="loadError" hidden>
+    <div class="error-box">
+      <h2>지도를 불러오지 못했습니다</h2>
+      <p id="loadErrorMsg">브이월드 지도 스크립트를 불러오는 중 문제가 발생했습니다. config.js의 API 키와 도메인 설정을 확인해 주세요.</p>
+      <button id="retryBtn" class="btn btn-primary">다시 시도</button>
+    </div>
+  </div>
+
+  <script src="config.js"></script>
+  <script>
+    (function () {
+      var cfg = window.VWORLD_CONFIG || {};
+      var params = "version=" + encodeURIComponent(cfg.version || "2.0") + "&apiKey=" + encodeURIComponent(cfg.apiKey || "");
+      if (cfg.domain) params += "&domain=" + encodeURIComponent(cfg.domain);
+      document.write('<script src="https://map.vworld.kr/js/webglMapInit.js.do?' + params + '"><\/script>');
+    })();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.js"></script>
+  <script src="app.js?v=20260928b"></script>
+</body>
+</html>
